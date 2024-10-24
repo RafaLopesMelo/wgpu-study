@@ -1,5 +1,5 @@
 use core::time;
-use std::{process::exit, sync::Arc};
+use std::sync::Arc;
 
 use winit::{
     application::ApplicationHandler,
@@ -21,6 +21,7 @@ struct State<'a> {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: PhysicalSize<u32>,
+    render_pipeline: wgpu::RenderPipeline,
 }
 
 impl<'a> State<'a> {
@@ -28,7 +29,7 @@ impl<'a> State<'a> {
         let size = window.inner_size();
 
         let instance_descriptor = wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends: wgpu::Backends::PRIMARY,
             ..Default::default()
         };
         let instance = wgpu::Instance::new(instance_descriptor);
@@ -36,7 +37,7 @@ impl<'a> State<'a> {
         let surface = instance.create_surface(window).unwrap();
 
         let adapter_descriptor = wgpu::RequestAdapterOptionsBase {
-            power_preference: wgpu::PowerPreference::default(),
+            power_preference: wgpu::PowerPreference::None,
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
         };
@@ -46,7 +47,7 @@ impl<'a> State<'a> {
             required_features: wgpu::Features::empty(),
             required_limits: wgpu::Limits::default(),
             memory_hints: wgpu::MemoryHints::default(),
-            label: Some("Device"),
+            label: Some("device"),
         };
         let (device, queue) = adapter
             .request_device(&device_descriptor, None)
@@ -75,12 +76,66 @@ impl<'a> State<'a> {
 
         surface.configure(&device, &config);
 
+        let shader_descriptor = wgpu::include_wgsl!("shader.wgsl");
+        let shader = device.create_shader_module(shader_descriptor);
+
+        let pipeline_layout_descriptor = wgpu::PipelineLayoutDescriptor {
+            label: Some("pipeline layout"),
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        };
+        let pipeline_layout = device.create_pipeline_layout(&pipeline_layout_descriptor);
+
+        let color_state = &[Some(wgpu::ColorTargetState {
+            format: config.format,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        })];
+
+        let pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("render pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: color_state,
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        };
+
+        let render_pipeline = device.create_render_pipeline(&pipeline_descriptor);
+
         return Self {
             surface,
             device,
             queue,
             config,
             size,
+            render_pipeline,
         };
     }
 
@@ -99,7 +154,7 @@ impl<'a> State<'a> {
         let image_view = drawable.texture.create_view(&image_view_descriptor);
 
         let command_encoder_descriptor = wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
+            label: Some("render encoder"),
         };
         let mut command_encoder = self
             .device
@@ -109,9 +164,9 @@ impl<'a> State<'a> {
             resolve_target: None,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Clear(wgpu::Color {
-                    r: 0.75,
-                    g: 0.5,
-                    b: 0.25,
+                    r: 0.1,
+                    g: 0.2,
+                    b: 0.3,
                     a: 1.0,
                 }),
                 store: wgpu::StoreOp::Store,
@@ -119,16 +174,20 @@ impl<'a> State<'a> {
         };
 
         let render_pass_descriptor = wgpu::RenderPassDescriptor {
-            label: Some("Render Pass"),
+            label: Some("render pass"),
             color_attachments: &[Some(color_attachment)],
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
         };
 
-        command_encoder.begin_render_pass(&render_pass_descriptor);
-        self.queue.submit(std::iter::once(command_encoder.finish()));
+        {
+            let mut render_pass = command_encoder.begin_render_pass(&render_pass_descriptor);
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.draw(0..3, 0..1);
+        }
 
+        self.queue.submit(std::iter::once(command_encoder.finish()));
         drawable.present();
 
         return Ok(());
@@ -161,9 +220,9 @@ impl ApplicationHandler<UserEvent> for App<'_> {
                 match state.render() {
                     Ok(_) => {}
                     Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
-                    Err(wgpu::SurfaceError::Timeout) => {}
-                    Err(wgpu::SurfaceError::Outdated) => {}
-                    Err(wgpu::SurfaceError::OutOfMemory) => exit(1),
+                    Err(wgpu::SurfaceError::Outdated) => println!("outdated"),
+                    Err(wgpu::SurfaceError::Timeout) => println!("timeout"),
+                    Err(wgpu::SurfaceError::OutOfMemory) => std::process::exit(1),
                 }
             }
             _ => println!("WindowEvent: {:?}", event),
