@@ -4,7 +4,7 @@ use core::time;
 use std::sync::Arc;
 
 use vertex::Vertex;
-use wgpu::util::DeviceExt;
+use wgpu::util::{DeviceExt, RenderEncoder};
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -27,7 +27,8 @@ struct State<'a> {
     size: PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
-    num_vertices: u32,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
 }
 
 impl<'a> State<'a> {
@@ -143,7 +144,14 @@ impl<'a> State<'a> {
 
         let vertex_buffer = device.create_buffer_init(&vertex_buffer_descriptor);
 
-        let num_vertices = vertex::VERTICES.len() as u32;
+        let index_buffer_descriptor = wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(vertex::INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        };
+        let index_buffer = device.create_buffer_init(&index_buffer_descriptor);
+
+        let num_indices = vertex::INDICES.len() as u32;
 
         return Self {
             surface,
@@ -153,7 +161,8 @@ impl<'a> State<'a> {
             size,
             render_pipeline,
             vertex_buffer,
-            num_vertices,
+            index_buffer,
+            num_indices,
         };
     }
 
@@ -203,8 +212,9 @@ impl<'a> State<'a> {
             let mut render_pass = command_encoder.begin_render_pass(&render_pass_descriptor);
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-            render_pass.draw(0..self.num_vertices, 0..1);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
 
         self.queue.submit(std::iter::once(command_encoder.finish()));
