@@ -4,7 +4,7 @@ use core::time;
 use std::sync::Arc;
 
 use vertex::Vertex;
-use wgpu::util::{DeviceExt, RenderEncoder};
+use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
