@@ -1,10 +1,11 @@
+mod texture;
 mod vertex;
 
 use core::time;
 use std::sync::Arc;
 
 use vertex::Vertex;
-use wgpu::util::{DeviceExt, RenderEncoder};
+use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -30,6 +31,7 @@ struct State<'a> {
     index_buffer: wgpu::Buffer,
     num_indices: u32,
     diffuse_bind_group: wgpu::BindGroup,
+    diffuse_texture: texture::Texture,
 }
 
 impl<'a> State<'a> {
@@ -85,60 +87,8 @@ impl<'a> State<'a> {
         surface.configure(&device, &config);
 
         let diffuse_bytes = include_bytes!("tree.png");
-        let diffuse_image = image::load_from_memory(diffuse_bytes).unwrap();
-        let diffuse_rgba = diffuse_image.to_rgba8();
-
-        use image::GenericImageView;
-        let dimensions = diffuse_image.dimensions();
-
-        let texture_size = wgpu::Extent3d {
-            width: dimensions.0,
-            height: dimensions.1,
-            depth_or_array_layers: 1,
-        };
-
-        let texture_descriptor = &wgpu::TextureDescriptor {
-            label: Some("diffuse texture"),
-            size: texture_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        };
-
-        let diffuse_texture = device.create_texture(texture_descriptor);
-
-        queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture: &diffuse_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &diffuse_rgba,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * dimensions.0),
-                rows_per_image: Some(dimensions.1),
-            },
-            texture_size,
-        );
-
-        let diffuse_texture_view_descriptor = wgpu::TextureViewDescriptor::default();
-        let diffuse_texture_view = diffuse_texture.create_view(&diffuse_texture_view_descriptor);
-
-        let sampler_descriptor = wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        };
-        let diffuse_sampler = device.create_sampler(&sampler_descriptor);
+        let diffuse_texture =
+            texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "diffuse_texture");
 
         let texture_bind_group_layout_desc = wgpu::BindGroupLayoutDescriptor {
             label: Some("texture_bind_group_layout"),
@@ -170,11 +120,11 @@ impl<'a> State<'a> {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
+                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
                 },
             ],
         };
@@ -261,6 +211,7 @@ impl<'a> State<'a> {
             index_buffer,
             num_indices,
             diffuse_bind_group,
+            diffuse_texture,
         };
     }
 
